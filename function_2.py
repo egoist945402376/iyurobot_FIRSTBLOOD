@@ -285,6 +285,8 @@ async def check_team(ctx: commands.Context):
 
 @bot.hybrid_command(name="assign_imposter_task", with_app_command=True)
 async def assign_imposter_task(ctx: commands.Context):
+    await ctx.defer()
+
     if ctx.guild is None:
         await ctx.send("该指令只能在服务器内使用。")
         return
@@ -333,31 +335,30 @@ async def assign_imposter_task(ctx: commands.Context):
     pending_imposter_accept[(ctx.guild.id, state.imposter_team2)] = ctx.author.id
 
     # ====== 发送 DM ======
-    async def safe_dm(user_id: int, content: str) -> bool:
-        member = ctx.guild.get_member(user_id)
-        if member is None:
-            return False
+    async def safe_dm(user_id: int, content: str) -> tuple[bool, str]:
         try:
-            await member.send(content)
-            return True
+            user = await bot.fetch_user(user_id)
+            dm = await user.create_dm() 
+            await dm.send(content)
+            return True, "ok"
         except discord.Forbidden:
-            return False
-        except discord.HTTPException:
-            return False
+            return False, "forbidden"
+        except discord.NotFound:
+            return False, "not_found"
+        except discord.HTTPException as e:
+            return False, f"http_{getattr(e, 'status', 'na')}"
+        except Exception as e:
+            return False, f"err_{type(e).__name__}"
 
     # 内鬼 DM
     imposter_msg = (
         "老大你是本局游戏的内鬼喵, 请在不被发现的基础上尽可能让你的基地爆炸\n"
         "收到请回复 /accept"
     )
-    ok_i1 = await safe_dm(state.imposter_team1, imposter_msg)
-    ok_i2 = await safe_dm(state.imposter_team2, imposter_msg)
 
     # tasker DM
     tasker_msg_t1 = f"你是tasker喵老大, 你本局的任务是：{state.task_team1}"
     tasker_msg_t2 = f"你是tasker喵老大, 你本局的任务是：{state.task_team2}"
-    ok_t1 = await safe_dm(state.tasker_team1, tasker_msg_t1)
-    ok_t2 = await safe_dm(state.tasker_team2, tasker_msg_t2)
 
     # blocker DM（注意：你说“用户名就好”，这里用 display_name）
     tasker_name_t1 = name_from_id(ctx.guild, state.tasker_team1)
@@ -371,8 +372,14 @@ async def assign_imposter_task(ctx: commands.Context):
         f"老大你是blocker喵！本局的tasker是：{tasker_name_t2}，"
         "你需要阻止他们喵！"
     )
-    ok_b1 = await safe_dm(state.blocker_team1, blocker_msg_t1)
-    ok_b2 = await safe_dm(state.blocker_team2, blocker_msg_t2)
+    ok_i1, r_i1 = await safe_dm(state.imposter_team1, imposter_msg)
+    ok_i2, r_i2 = await safe_dm(state.imposter_team2, imposter_msg)
+
+    ok_t1, r_t1 = await safe_dm(state.tasker_team1, tasker_msg_t1)
+    ok_t2, r_t2 = await safe_dm(state.tasker_team2, tasker_msg_t2)
+
+    ok_b1, r_b1 = await safe_dm(state.blocker_team1, blocker_msg_t1)
+    ok_b2, r_b2 = await safe_dm(state.blocker_team2, blocker_msg_t2)
 
     # 给主持人一个汇总（不暴露身份，只告诉是否发出去成功）
     fail = []
