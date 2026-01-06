@@ -1,4 +1,5 @@
 import os
+import random
 from typing import Dict, Tuple, List
 
 import discord
@@ -16,6 +17,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # 绑定存储：key=(guild_id, binder_id) -> value=[member_id, ...]
 bindings: Dict[Tuple[int, int], List[int]] = {}
 
+team_1: Dict[Tuple[int, int], List[int]] = {}
+team_2: Dict[Tuple[int, int], List[int]] = {}
 
 @bot.event
 async def on_ready():
@@ -33,7 +36,6 @@ async def on_ready():
         print("Synced commands globally (may take time to appear).")
 
 
-# 你原来的同步命令我也保留，但改成“同步到当前服务器”，更快看到 /
 @bot.command()
 async def synccommands(ctx: commands.Context):
     if ctx.guild is None:
@@ -135,6 +137,88 @@ async def greeting(ctx: commands.Context):
 @bot.hybrid_command(name="add", with_app_command=True)
 async def add(ctx: commands.Context, a: int, b: int):
     await ctx.send(a + b)
+
+
+@bot.hybrid_command(name="roll_team", with_app_command=True)
+async def roll_team(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+
+    key = (ctx.guild.id, ctx.author.id)
+
+    # 1) 必须先有绑定
+    if key not in bindings or not bindings[key]:
+        await ctx.send("老大现在你还没有绑定任何人喵")
+        return
+
+    user_ids = bindings[key]
+
+    # 2) 你说的是绑定的10个人：强制检查一下
+    if len(user_ids) != 10:
+        await ctx.send(f"老大你当前绑定了 {len(user_ids)} 个人喵，需要刚好 10 个才能 roll_team。")
+        return
+
+    # 3) 随机分组：打乱后切一半（5/5）
+    shuffled = user_ids[:]  # copy
+    random.shuffle(shuffled)
+
+    t1 = shuffled[:5]
+    t2 = shuffled[5:]
+
+    # 4) 写入“新的变量”供后续功能使用
+    team_1[key] = t1
+    team_2[key] = t2
+
+    # 5) 输出成员（@）
+    def mention_list(ids: List[int]) -> str:
+        parts = []
+        for uid in ids:
+            member = ctx.guild.get_member(uid)
+            parts.append(member.mention if member else f"<@{uid}>")
+        return " ".join(parts)
+
+    msg = (
+        "分组完成！\n"
+        f"Team_1: {mention_list(t1)}\n"
+        f"Team_2: {mention_list(t2)}"
+    )
+    await ctx.send(msg)
+
+
+@bot.hybrid_command(name="check_team", with_app_command=True)
+async def check_team(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+
+    key = (ctx.guild.id, ctx.author.id)
+
+    # 检查是否已经分队
+    if key not in team_1 or key not in team_2 or not team_1[key] or not team_2[key]:
+        await ctx.send("老大你还没分分队喵 请输入/roll_team 分队喵")
+        return
+
+    # 获取两队成员
+    t1_ids = team_1[key]
+    t2_ids = team_2[key]
+
+    # 生成 mention 列表
+    def mention_list(ids: List[int]) -> str:
+        parts = []
+        for uid in ids:
+            member = ctx.guild.get_member(uid)
+            parts.append(member.mention if member else f"<@{uid}>")
+        return " ".join(parts)
+
+    msg = (
+        "当前分队情况：\n"
+        f"**Team_1**: {mention_list(t1_ids)}\n"
+        f"**Team_2**: {mention_list(t2_ids)}"
+    )
+    await ctx.send(msg)
+
+
 
 
 bot.run(token)
