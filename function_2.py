@@ -1,9 +1,50 @@
 import os
 import random
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional, Set
+from dataclasses import dataclass, field
 
 import discord
 from discord.ext import commands
+
+
+# 任务池
+TASK_POOL = [
+    "补兵最多", "补兵最少",
+    "控制得分最高", "控制得分最低",
+    "助攻数最高", "助攻数最低",
+    "抗伤最高", "抗伤最低",
+]
+
+Key = Tuple[int, int] 
+
+
+
+@dataclass
+class RoundState:
+    team1: List[int] = field(default_factory=list)
+    team2: List[int] = field(default_factory=list)
+
+    imposter_team1: Optional[int] = None
+    imposter_team2: Optional[int] = None
+
+    tasker_team1: Optional[int] = None
+    tasker_team2: Optional[int] = None
+    task_team1: Optional[str] = None
+    task_team2: Optional[str] = None
+
+    blocker_team1: Optional[int] = None
+    blocker_team2: Optional[int] = None
+
+    # 哪些内鬼已经 /accept 了
+    accepted_imposters: Set[int] = field(default_factory=set)
+
+
+# 每一局的状态：key=(服务器, 发起者)
+round_state: Dict[Key, RoundState] = {}
+
+pending_imposter_accept: Dict[Tuple[int, int], int] = {}
+
+
 
 token = os.getenv("DISCORD_BOT_TOKEN")
 if not token:
@@ -20,6 +61,15 @@ bindings: Dict[Tuple[int, int], List[int]] = {}
 team_1: Dict[Tuple[int, int], List[int]] = {}
 team_2: Dict[Tuple[int, int], List[int]] = {}
 
+
+def mention_from_id(guild: discord.Guild, uid: int) -> str:
+    m = guild.get_member(uid)
+    return m.mention if m else f"<@{uid}>"
+
+def name_from_id(guild: discord.Guild, uid: int) -> str:
+    m = guild.get_member(uid)
+    return m.display_name if m else str(uid)
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (id={bot.user.id})")
@@ -28,7 +78,7 @@ async def on_ready():
     guild_id = os.getenv("DISCORD_GUILD_ID")
     if guild_id:
         guild = discord.Object(id=int(guild_id))
-        await bot.tree.sync(guild=guild)
+        #await bot.tree.sync(guild=guild)
         print(f"Synced commands to guild {guild_id}.")
     else:
         # 没设置就全局同步（可能会慢）
@@ -36,15 +86,29 @@ async def on_ready():
         print("Synced commands globally (may take time to appear).")
 
 
-@bot.command()
+'''@bot.command()
 async def synccommands(ctx: commands.Context):
     if ctx.guild is None:
         await ctx.send("请在服务器里用这个命令。")
         return
     guild = discord.Object(id=ctx.guild.id)
-    await bot.tree.sync(guild=guild)
-    await ctx.send("命令同步完成（本服务器）")
+    synced = await bot.tree.sync(guild=guild)
+    await ctx.send("本服务器已同步命令： " + ", ".join([c.name for c in synced]))'''
 
+
+@bot.command()
+async def synccommands(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("请在服务器里用这个命令。")
+        return
+
+    guild = discord.Object(id=ctx.guild.id)
+
+    # ✅ 关键：把全局命令复制到这个服务器，方便立刻看到 /
+    bot.tree.copy_global_to(guild=guild)
+
+    synced = await bot.tree.sync(guild=guild)
+    await ctx.send("本服务器已同步命令： " + ", ".join([c.name for c in synced]))
 
 @bot.hybrid_command(name="bind_10", with_app_command=True)
 async def bind_10(
@@ -218,6 +282,111 @@ async def check_team(ctx: commands.Context):
     )
     await ctx.send(msg)
 
+
+@bot.hybrid_command(name="assign_imposter_task", with_app_command=True)
+async def assign_imposter_task(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+
+    key: Key = (ctx.guild.id, ctx.author.id)
+
+    # 必须先 roll_team
+    if key not in team_1 or key not in team_2 or not team_1[key] or not team_2[key]:
+        await ctx.send("老大你还没有 roll_team 喵，请先用 /roll_team 分好组。")
+        return
+
+    t1 = team_1[key][:]
+    t2 = team_2[key][:]
+
+    if len(t1) < 2 or len(t2) < 2:
+        await ctx.send("队伍人数太少喵（每队至少要 2 人才能抽 tasker+blocker）。")
+        return
+
+    state = RoundState(team1=t1, team2=t2)
+
+    # 1) 抽内鬼（每队1人）
+    state.imposter_team1 = random.choice(t1)
+    state.imposter_team2 = random.choice(t2)
+
+    # 2) 抽 tasker（每队1人）+ 分任务
+    state.tasker_team1 = random.choice(t1)
+    state.tasker_team2 = random.choice(t2)
+    state.task_team1 = random.choice(TASK_POOL)
+    state.task_team2 = random.choice(TASK_POOL)
+
+    # 3) 抽 blocker（每队1人），不能和 tasker 同一个人
+    t1_blocker_candidates = [uid for uid in t1 if uid != state.tasker_team1]
+    t2_blocker_candidates = [uid for uid in t2 if uid != state.tasker_team2]
+    if not t1_blocker_candidates or not t2_blocker_candidates:
+        await ctx.send("老大，有一队人太少导致 blocker 无法避开 tasker 喵。")
+        return
+
+    state.blocker_team1 = random.choice(t1_blocker_candidates)
+    state.blocker_team2 = random.choice(t2_blocker_candidates)
+
+    # 写入状态
+    round_state[key] = state
+
+    # 写入“待 accept”索引（每队内鬼各一条）
+    pending_imposter_accept[(ctx.guild.id, state.imposter_team1)] = ctx.author.id
+    pending_imposter_accept[(ctx.guild.id, state.imposter_team2)] = ctx.author.id
+
+    # ====== 发送 DM ======
+    async def safe_dm(user_id: int, content: str) -> bool:
+        member = ctx.guild.get_member(user_id)
+        if member is None:
+            return False
+        try:
+            await member.send(content)
+            return True
+        except discord.Forbidden:
+            return False
+        except discord.HTTPException:
+            return False
+
+    # 内鬼 DM
+    imposter_msg = (
+        "老大你是本局游戏的内鬼喵, 请在不被发现的基础上尽可能让你的基地爆炸\n"
+        "收到请回复 /accept"
+    )
+    ok_i1 = await safe_dm(state.imposter_team1, imposter_msg)
+    ok_i2 = await safe_dm(state.imposter_team2, imposter_msg)
+
+    # tasker DM
+    tasker_msg_t1 = f"你是tasker喵老大, 你本局的任务是：{state.task_team1}"
+    tasker_msg_t2 = f"你是tasker喵老大, 你本局的任务是：{state.task_team2}"
+    ok_t1 = await safe_dm(state.tasker_team1, tasker_msg_t1)
+    ok_t2 = await safe_dm(state.tasker_team2, tasker_msg_t2)
+
+    # blocker DM（注意：你说“用户名就好”，这里用 display_name）
+    tasker_name_t1 = name_from_id(ctx.guild, state.tasker_team1)
+    tasker_name_t2 = name_from_id(ctx.guild, state.tasker_team2)
+    blocker_msg_t1 = (
+        f"老大你是blocker喵！本局的tasker是：{tasker_name_t1}，"
+        "你需要阻止他们喵！"
+    )
+
+    blocker_msg_t2 = (
+        f"老大你是blocker喵！本局的tasker是：{tasker_name_t2}，"
+        "你需要阻止他们喵！"
+    )
+    ok_b1 = await safe_dm(state.blocker_team1, blocker_msg_t1)
+    ok_b2 = await safe_dm(state.blocker_team2, blocker_msg_t2)
+
+    # 给主持人一个汇总（不暴露身份，只告诉是否发出去成功）
+    fail = []
+    if not ok_i1: fail.append(f"Team1 内鬼 DM 失败：{mention_from_id(ctx.guild, state.imposter_team1)}")
+    if not ok_i2: fail.append(f"Team2 内鬼 DM 失败：{mention_from_id(ctx.guild, state.imposter_team2)}")
+    if not ok_t1: fail.append(f"Team1 tasker DM 失败：{mention_from_id(ctx.guild, state.tasker_team1)}")
+    if not ok_t2: fail.append(f"Team2 tasker DM 失败：{mention_from_id(ctx.guild, state.tasker_team2)}")
+    if not ok_b1: fail.append(f"Team1 blocker DM 失败：{mention_from_id(ctx.guild, state.blocker_team1)}")
+    if not ok_b2: fail.append(f"Team2 blocker DM 失败：{mention_from_id(ctx.guild, state.blocker_team2)}")
+
+    if fail:
+        await ctx.send("分配完成，但有私信发送失败喵：\n" + "\n".join(fail))
+    else:
+        await ctx.send("分配完成喵！我已经把身份和任务都私信发出去了。")
 
 
 
