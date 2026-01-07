@@ -357,19 +357,19 @@ async def assign_imposter_task(ctx: commands.Context):
     )
 
     # tasker DM
-    tasker_msg_t1 = f"你是tasker喵老大, 你本局的任务是：{state.task_team1}"
-    tasker_msg_t2 = f"你是tasker喵老大, 你本局的任务是：{state.task_team2}"
+    tasker_msg_t1 = f"你是任务者喵老大, 你本局的任务是：{state.task_team1}"
+    tasker_msg_t2 = f"你是任务者喵老大, 你本局的任务是：{state.task_team2}"
 
-    # blocker DM（注意：你说“用户名就好”，这里用 display_name）
+    # blocker DM
     tasker_name_t1 = name_from_id(ctx.guild, state.tasker_team1)
     tasker_name_t2 = name_from_id(ctx.guild, state.tasker_team2)
     blocker_msg_t1 = (
-        f"老大你是blocker喵！本局的tasker是：{tasker_name_t1}，"
+        f"老大你是本局的阻止者喵！本局的tasker是：{tasker_name_t1}， ta的任务是{state.task_team1}"
         "你需要阻止他们喵！"
     )
 
     blocker_msg_t2 = (
-        f"老大你是blocker喵！本局的tasker是：{tasker_name_t2}，"
+        f"老大你是blocker喵！本局的tasker是：{tasker_name_t2}，ta的任务是{state.task_team2}"
         "你需要阻止他们喵！"
     )
     ok_i1, r_i1 = await safe_dm(state.imposter_team1, imposter_msg)
