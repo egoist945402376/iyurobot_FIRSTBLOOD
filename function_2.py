@@ -422,6 +422,27 @@ async def assign_imposter_task(ctx: commands.Context):
         await ctx.send("分配完成，但有私信发送失败喵：\n" + "\n".join(fail))
     else:
         await ctx.send("分配完成喵！我已经把身份和任务都私信发出去了。")
+    
+    host_id = host_binding.get(ctx.guild.id, ctx.author.id) 
+
+    def mention(uid: Optional[int]) -> str:
+        if uid is None:
+            return "（无）"
+        return f"<@{uid}>"
+
+    host_summary = (
+        "📌 本局身份与任务汇总\n\n"
+        "【Team 1】\n"
+        f"- 内鬼: {mention(state.imposter_team1)}\n"
+        f"- 任务者: {mention(state.tasker_team1)} ｜ Task: {state.task_team1}\n"
+        f"- 阻止者: {mention(state.blocker_team1)}\n\n"
+        "【Team 2】\n"
+        f"- 内鬼: {mention(state.imposter_team2)}\n"
+        f"- 任务者: {mention(state.tasker_team2)} ｜ Task: {state.task_team2}\n"
+        f"- 阻止者: {mention(state.blocker_team2)}\n"
+    )
+
+    ok_h, r_h = await safe_dm(host_id, host_summary)
 
 
 @bot.hybrid_command(name="show_impo_task", with_app_command=True)
