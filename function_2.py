@@ -395,12 +395,12 @@ async def assign_imposter_task(ctx: commands.Context):
     # 内鬼 DM
     imposter_msg = (
         "老大你是本局游戏的内鬼喵, 请在不被发现的基础上尽可能让你的基地爆炸\n"
-        "收到请回复 /accept"
+        "收到请回复 !accept, 注意是感叹号!"
     )
 
     # tasker DM
-    tasker_msg_t1 = f"你是任务者喵老大, 你本局的任务是：{state.task_team1}\n收到请回复 /accept"
-    tasker_msg_t2 = f"你是任务者喵老大, 你本局的任务是：{state.task_team2}\n收到请回复 /accept"
+    tasker_msg_t1 = f"你是任务者喵老大, 你本局的任务是：{state.task_team1}\n收到请回复 !accept, 注意是感叹号!"
+    tasker_msg_t2 = f"你是任务者喵老大, 你本局的任务是：{state.task_team2}\n收到请回复 !accept, 注意是感叹号!"
 
     # blocker DM
     tasker_name_t1 = await display_name_from_id(ctx.guild, state.tasker_team1)
@@ -408,13 +408,13 @@ async def assign_imposter_task(ctx: commands.Context):
     blocker_msg_t1 = (
         f"老大你是本局的阻止者喵！本局的任务者是：{tasker_name_t1}， ta的任务是{state.task_team1}\n"
         "你需要阻止他们喵！\n"
-        "收到请回复 /accept"
+        "收到请回复 !accept, 注意是感叹号!"
     )
 
     blocker_msg_t2 = (
         f"老大你是blocker喵！本局的任务者是：{tasker_name_t2}，ta的任务是{state.task_team2}\n"
         "你需要阻止他们喵！\n"
-        "收到请回复 /accept"
+        "收到请回复 !accept, 注意是感叹号!"
     )
     
     ok_i1, r_i1 = await safe_dm(state.imposter_team1, imposter_msg)
