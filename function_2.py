@@ -611,4 +611,54 @@ async def check_host(ctx: commands.Context):
     mention = member.mention if member else f"<@{host_id}>"
     await ctx.send(f"当前主持人是：{mention}")
 
+
+@bot.hybrid_command(name="handbook", with_app_command=True)
+async def handbook(ctx: commands.Context):
+    """显示机器人使用手册"""
+    
+    manual = """
+📖 **游戏机器人使用手册** 📖
+
+**1️⃣ 绑定玩家**
+输入 `/bind_10` 后会有10个小窗口，在小窗口里依次输入参加比赛的10个玩家的discord id
+
+**2️⃣ 检查绑定**
+绑定完成后可以输入 `/check_bind` 查看绑定用户是否精准
+
+**3️⃣ 解绑与重新绑定**
+绑定完成后使用 `/roll_team` 进行分队，如果绑定出问题了机器人会报错，这个时候输入 `/unbind` 就可以解绑10个人，然后重新 `/bind_10` 进行绑定
+
+**4️⃣ 绑定主持人（可选）**
+如果有主持人可以使用 `/bind_host 主持人dc` 进行绑定主持人
+需要更换主持人可以输入 `/unbind_host` 解绑后重新绑定主持人
+
+**5️⃣ 重新分队**
+如果分队不满意可以再次使用 `/roll_team` 指令进行重新组队
+
+**6️⃣ 分配身份和任务**
+之后便可以使用 `/assign_imposter_task` 机器人会自动分配每队的内鬼和任务者，通过私信的方式给到大家
+⚠️ 注意：主持人会被copy一份完整的清单，如果没有主持人则默认copy给使用这个指令的人
+所以如果当天没有主持人，请随机 `/bind_host 雨` 或者 `/bind_host yuyu`
+
+**7️⃣ 确认身份**
+被DM到身份的玩家请在私信中输入 `!accept` 接受身份
+⚠️ 注意：是 `!accept` 感叹号，因为目前有不可抗力我没法在私人对话里synchronize指令
+
+**8️⃣ 检查确认状态**
+身份派发后过一会儿可以输入 `/check_accept` 检查大家是否都accept了，会返回消息
+
+**9️⃣ 查看身份信息**
+游戏结束后可以输入 `/show_impo_task` 打印本局的全部身份信息
+
+**🔟 开始新一局**
+新一局可以再次 `/assign_imposter_task`，然后重复上述流程就好了
+
+**1️⃣1️⃣ 重要提示**
+刀最帅 ✨
+如果遇到机器人使用不了, 请联系管理员雨、キミを連れて, 大概率是机器人没开机
+"""
+    
+    await ctx.send(manual)
+
+
 bot.run(token)
