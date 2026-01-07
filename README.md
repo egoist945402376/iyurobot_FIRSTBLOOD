@@ -1,2 +1,2 @@
 # iyurobot_FIRSTBLOOD
-A game bot used for my game society: FIRST BLOOD. 
+A game bot used for my game community: FIRST BLOOD. 
