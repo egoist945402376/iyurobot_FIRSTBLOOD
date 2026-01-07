@@ -66,6 +66,34 @@ def mention_from_id(guild: discord.Guild, uid: int) -> str:
     m = guild.get_member(uid)
     return m.mention if m else f"<@{uid}>"
 
+
+
+async def display_name_from_id(
+    guild: discord.Guild,
+    uid: int,
+) -> str:
+    # 1)
+    member = guild.get_member(uid)
+    if member:
+        return member.display_name
+
+    # 2)fetch_member
+    try:
+        member = await guild.fetch_member(uid)
+        return member.display_name
+    except discord.NotFound:
+        pass
+    except discord.Forbidden:
+        pass
+
+    # 3)
+    try:
+        user = await bot.fetch_user(uid)
+        return user.name
+    except Exception:
+        return str(uid)
+
+
 def name_from_id(guild: discord.Guild, uid: int) -> str:
     m = guild.get_member(uid)
     return m.display_name if m else str(uid)
@@ -361,15 +389,15 @@ async def assign_imposter_task(ctx: commands.Context):
     tasker_msg_t2 = f"你是任务者喵老大, 你本局的任务是：{state.task_team2}"
 
     # blocker DM
-    tasker_name_t1 = name_from_id(ctx.guild, state.tasker_team1)
-    tasker_name_t2 = name_from_id(ctx.guild, state.tasker_team2)
+    tasker_name_t1 = await display_name_from_id(ctx.guild, state.tasker_team1)
+    tasker_name_t2 = await display_name_from_id(ctx.guild, state.tasker_team2)
     blocker_msg_t1 = (
-        f"老大你是本局的阻止者喵！本局的tasker是：{tasker_name_t1}， ta的任务是{state.task_team1}"
+        f"老大你是本局的阻止者喵！本局的任务者是：{tasker_name_t1}， ta的任务是{state.task_team1}"
         "你需要阻止他们喵！"
     )
 
     blocker_msg_t2 = (
-        f"老大你是blocker喵！本局的tasker是：{tasker_name_t2}，ta的任务是{state.task_team2}"
+        f"老大你是blocker喵！本局的任务者是：{tasker_name_t2}，ta的任务是{state.task_team2}"
         "你需要阻止他们喵！"
     )
     ok_i1, r_i1 = await safe_dm(state.imposter_team1, imposter_msg)
