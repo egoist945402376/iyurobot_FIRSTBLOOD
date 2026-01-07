@@ -17,7 +17,7 @@ TASK_POOL = [
 
 Key = Tuple[int, int] 
 
-
+host_binding: Dict[int, int] = {}
 
 @dataclass
 class RoundState:
@@ -462,5 +462,43 @@ async def show_impo_task(ctx: commands.Context):
 
     await ctx.send(msg)
 
+@bot.hybrid_command(name="bind_host", with_app_command=True)
+async def bind_host(ctx: commands.Context, host: Optional[discord.Member] = None):
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+
+    host_member = host or ctx.author  # default to the invoker
+    host_binding[ctx.guild.id] = host_member.id
+
+    await ctx.send(f"主持人已绑定为：{host_member.mention}")
+
+@bot.hybrid_command(name="unbind_host", with_app_command=True)
+async def unbind_host(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+
+    if ctx.guild.id not in host_binding:
+        await ctx.send("当前服务器还没有绑定主持人喵。")
+        return
+
+    host_binding.pop(ctx.guild.id, None)
+    await ctx.send("主持人已解绑喵 ✅")
+
+@bot.hybrid_command(name="check_host", with_app_command=True)
+async def check_host(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+
+    host_id = host_binding.get(ctx.guild.id)
+    if not host_id:
+        await ctx.send("当前服务器还没有绑定主持人喵。")
+        return
+
+    member = ctx.guild.get_member(host_id)
+    mention = member.mention if member else f"<@{host_id}>"
+    await ctx.send(f"当前主持人是：{mention}")
 
 bot.run(token)
