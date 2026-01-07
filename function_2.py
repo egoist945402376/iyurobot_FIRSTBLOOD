@@ -396,5 +396,43 @@ async def assign_imposter_task(ctx: commands.Context):
         await ctx.send("分配完成喵！我已经把身份和任务都私信发出去了。")
 
 
+@bot.hybrid_command(name="show_impo_task", with_app_command=True)
+async def show_impo_task(ctx: commands.Context):
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+
+    key: Key = (ctx.guild.id, ctx.author.id)
+
+    state = round_state.get(key)
+    if not state:
+        await ctx.send("老大你这边还没有本局记录喵，请先用 /assign_imposter_task 开局。")
+        return
+
+    # mention helper
+    def m(uid: Optional[int]) -> str:
+        if uid is None:
+            return "（无）"
+        member = ctx.guild.get_member(uid)
+        return member.mention if member else f"<@{uid}>"
+
+    # 任务字符串可能是 None，做一下兜底
+    t1_task = state.task_team1 or "（无任务）"
+    t2_task = state.task_team2 or "（无任务）"
+
+    msg = (
+        "**本局身份与任务汇总：**\n"
+        f"**Team 1**\n"
+        f"- 内鬼: {m(state.imposter_team1)}\n"
+        f"- 任务者: {m(state.tasker_team1)} ｜ Task: {t1_task}\n"
+        f"- 阻止者: {m(state.blocker_team1)}\n\n"
+        f"**Team 2**\n"
+        f"- 内鬼: {m(state.imposter_team2)}\n"
+        f"- 任务者: {m(state.tasker_team2)} ｜ Task: {t2_task}\n"
+        f"- 阻止者: {m(state.blocker_team2)}\n"
+    )
+
+    await ctx.send(msg)
+
 
 bot.run(token)
