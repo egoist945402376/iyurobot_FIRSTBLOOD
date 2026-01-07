@@ -42,8 +42,14 @@ class RoundState:
 # 每一局的状态：key=(服务器, 发起者)
 round_state: Dict[Key, RoundState] = {}
 
-pending_imposter_accept: Dict[Tuple[int, int], int] = {}
+# 🆕 【改动1】删除旧的，改用新的 pending_accept
+# pending_imposter_accept: Dict[Tuple[int, int], int] = {}  # ❌ 删除这行
 
+# 🆕 【新增】存储每局需要确认的所有用户（内鬼+任务者+阻止者）
+pending_accept: Dict[Key, Set[int]] = {}
+
+# 🆕 【新增】反向索引：用户ID -> 他所在的游戏局key
+user_to_game: Dict[int, Key] = {}
 
 
 token = os.getenv("DISCORD_BOT_TOKEN")
@@ -112,16 +118,6 @@ async def on_ready():
         # 没设置就全局同步（可能会慢）
         await bot.tree.sync()
         print("Synced commands globally (may take time to appear).")
-
-
-'''@bot.command()
-async def synccommands(ctx: commands.Context):
-    if ctx.guild is None:
-        await ctx.send("请在服务器里用这个命令。")
-        return
-    guild = discord.Object(id=ctx.guild.id)
-    synced = await bot.tree.sync(guild=guild)
-    await ctx.send("本服务器已同步命令： " + ", ".join([c.name for c in synced]))'''
 
 
 @bot.command()
@@ -219,11 +215,11 @@ async def check_bind(ctx: commands.Context):
 
 @bot.hybrid_command(name="greet", with_app_command=True)
 async def greet(ctx: commands.Context):
-    await ctx.send("你说什么我都听不懂， 因为我只是一只奶牛猫。 我只听得懂我的主人跟我说“枣子过来”。")
+    await ctx.send("你说什么我都听不懂， 因为我只是一只奶牛猫。 我只听得懂我的主人跟我说'枣子过来'。")
 
 @bot.hybrid_command(name="greeting", with_app_command=True)
 async def greeting(ctx: commands.Context):
-    await ctx.send("你说什么我都听不懂， 因为我只是一只奶牛猫。 我只听得懂我的主人跟我说“枣子过来”。")
+    await ctx.send("你说什么我都听不懂， 因为我只是一只奶牛猫。 我只听得懂我的主人跟我说'枣子过来'。")
 
 
 @bot.hybrid_command(name="add", with_app_command=True)
@@ -258,7 +254,7 @@ async def roll_team(ctx: commands.Context):
     t1 = shuffled[:5]
     t2 = shuffled[5:]
 
-    # 4) 写入“新的变量”供后续功能使用
+    # 4) 写入"新的变量"供后续功能使用
     team_1[key] = t1
     team_2[key] = t2
 
@@ -358,15 +354,32 @@ async def assign_imposter_task(ctx: commands.Context):
     # 写入状态
     round_state[key] = state
 
-    # 写入“待 accept”索引（每队内鬼各一条）
-    pending_imposter_accept[(ctx.guild.id, state.imposter_team1)] = ctx.author.id
-    pending_imposter_accept[(ctx.guild.id, state.imposter_team2)] = ctx.author.id
+    # 🆕 【改动2】删除旧的 pending_imposter_accept，改用新的
+    # pending_imposter_accept[(ctx.guild.id, state.imposter_team1)] = ctx.author.id  # ❌ 删除
+    # pending_imposter_accept[(ctx.guild.id, state.imposter_team2)] = ctx.author.id  # ❌ 删除
+
+    # 🆕 【新增】收集所有需要确认的用户（6个人）
+    assigned_users = {
+        state.imposter_team1,
+        state.imposter_team2,
+        state.tasker_team1,
+        state.tasker_team2,
+        state.blocker_team1,
+        state.blocker_team2,
+    }
+    
+    # 🆕 【新增】初始化 pending 列表
+    pending_accept[key] = assigned_users.copy()
+    
+    # 🆕 【新增】建立反向索引
+    for user_id in assigned_users:
+        user_to_game[user_id] = key
 
     # ====== 发送 DM ======
     async def safe_dm(user_id: int, content: str) -> tuple[bool, str]:
         try:
             user = await bot.fetch_user(user_id)
-            dm = await user.create_dm() 
+            dm = await user.create_dm()
             await dm.send(content)
             return True, "ok"
         except discord.Forbidden:
@@ -378,6 +391,7 @@ async def assign_imposter_task(ctx: commands.Context):
         except Exception as e:
             return False, f"err_{type(e).__name__}"
 
+    # 🆕 【改动3】所有DM消息都加上 "收到请回复 /accept"
     # 内鬼 DM
     imposter_msg = (
         "老大你是本局游戏的内鬼喵, 请在不被发现的基础上尽可能让你的基地爆炸\n"
@@ -385,21 +399,24 @@ async def assign_imposter_task(ctx: commands.Context):
     )
 
     # tasker DM
-    tasker_msg_t1 = f"你是任务者喵老大, 你本局的任务是：{state.task_team1}"
-    tasker_msg_t2 = f"你是任务者喵老大, 你本局的任务是：{state.task_team2}"
+    tasker_msg_t1 = f"你是任务者喵老大, 你本局的任务是：{state.task_team1}\n收到请回复 /accept"
+    tasker_msg_t2 = f"你是任务者喵老大, 你本局的任务是：{state.task_team2}\n收到请回复 /accept"
 
     # blocker DM
     tasker_name_t1 = await display_name_from_id(ctx.guild, state.tasker_team1)
     tasker_name_t2 = await display_name_from_id(ctx.guild, state.tasker_team2)
     blocker_msg_t1 = (
-        f"老大你是本局的阻止者喵！本局的任务者是：{tasker_name_t1}， ta的任务是{state.task_team1}"
-        "你需要阻止他们喵！"
+        f"老大你是本局的阻止者喵！本局的任务者是：{tasker_name_t1}， ta的任务是{state.task_team1}\n"
+        "你需要阻止他们喵！\n"
+        "收到请回复 /accept"
     )
 
     blocker_msg_t2 = (
-        f"老大你是blocker喵！本局的任务者是：{tasker_name_t2}，ta的任务是{state.task_team2}"
-        "你需要阻止他们喵！"
+        f"老大你是blocker喵！本局的任务者是：{tasker_name_t2}，ta的任务是{state.task_team2}\n"
+        "你需要阻止他们喵！\n"
+        "收到请回复 /accept"
     )
+    
     ok_i1, r_i1 = await safe_dm(state.imposter_team1, imposter_msg)
     ok_i2, r_i2 = await safe_dm(state.imposter_team2, imposter_msg)
 
@@ -443,6 +460,78 @@ async def assign_imposter_task(ctx: commands.Context):
     )
 
     ok_h, r_h = await safe_dm(host_id, host_summary)
+
+
+# 🆕 【新增命令1】/accept - 玩家确认身份
+@bot.hybrid_command(name="accept", with_app_command=True)
+async def accept(ctx: commands.Context):
+    """玩家确认接受本局身份"""
+    user_id = ctx.author.id
+    
+    # 检查这个用户是否在某个游戏的 pending 列表中
+    game_key = user_to_game.get(user_id)
+    
+    if game_key is None:
+        # 用户不在 pending 里
+        await ctx.send("你是好人喵, 请你努力抓出内鬼。")
+        return
+    
+    # 检查这个游戏是否还存在
+    if game_key not in pending_accept:
+        await ctx.send("你是好人喵, 请你努力抓出内鬼。")
+        # 清理反向索引
+        user_to_game.pop(user_id, None)
+        return
+    
+    # 检查用户是否在 pending 列表中
+    if user_id not in pending_accept[game_key]:
+        await ctx.send("你是好人喵, 请你努力抓出内鬼。")
+        return
+    
+    # 用户在 pending 里，确认身份
+    await ctx.send("你已经确认本局身份, 加油完成目标喵")
+    
+    # 从 pending 里删除
+    pending_accept[game_key].remove(user_id)
+    user_to_game.pop(user_id, None)
+    
+    # 通知主持人（可选）
+    guild_id, host_id = game_key
+    guild = bot.get_guild(guild_id)
+    if guild:
+        host = guild.get_member(host_id)
+        if host:
+            try:
+                user_name = await display_name_from_id(guild, user_id)
+                await host.send(f"✅ {user_name} 已确认身份")
+            except:
+                pass
+
+
+# 🆕 【新增命令2】/check_accept - 检查确认状态
+@bot.hybrid_command(name="check_accept", with_app_command=True)
+async def check_accept(ctx: commands.Context):
+    """检查是否所有玩家都已确认身份"""
+    if ctx.guild is None:
+        await ctx.send("该指令只能在服务器内使用。")
+        return
+    
+    key: Key = (ctx.guild.id, ctx.author.id)
+    
+    # 检查是否有本局游戏
+    if key not in pending_accept:
+        await ctx.send("老大你还没有开始游戏喵，请先用 /assign_imposter_task 开局。")
+        return
+    
+    # 检查 pending 列表
+    pending_users = pending_accept[key]
+    
+    if len(pending_users) == 0:
+        # 所有人都确认了
+        await ctx.send("所有身份者都已收到了喵 可以开始游戏了")
+    else:
+        # 还有人未确认
+        await ctx.send(f"有人还没确认喵（还有 {len(pending_users)} 人未确认）")
 
 
 @bot.hybrid_command(name="show_impo_task", with_app_command=True)
